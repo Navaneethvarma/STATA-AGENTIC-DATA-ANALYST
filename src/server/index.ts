@@ -10,9 +10,13 @@ import {
   DeliveryRepository,
   BiRepository,
   AuditRepository,
+  HealthRepository,
 } from '../lib/db/repositories/index.js';
 import { AuthService } from '../lib/auth/service.js';
 import { DatasetStorageService } from '../lib/dataset/storage.js';
+import { AnalysisService } from '../lib/analysis/service.js';
+import { AuditService } from '../lib/audit/service.js';
+import { HealthService } from '../lib/health/service.js';
 import { getAnalysisQueue, reconcileInterruptedJobs } from '../lib/queue/analysis-queue.js';
 import type { AnalysisQueueAdapter } from '../types/analysis.types.js';
 import { AuthorizationError } from '../lib/auth/rbac.js';
@@ -60,6 +64,7 @@ export function createAppServer(options?: {
   const deliveryRepo = new DeliveryRepository(db);
   const biRepo = new BiRepository(db);
   const auditRepo = new AuditRepository(db);
+  const healthRepo = new HealthRepository(db);
 
   const repositories: ServerRepositories = {
     user: userRepo,
@@ -71,14 +76,18 @@ export function createAppServer(options?: {
     delivery: deliveryRepo,
     bi: biRepo,
     audit: auditRepo,
+    health: healthRepo,
   };
 
   const queue = options?.queue || getAnalysisQueue({ analysisRepo, datasetRepo });
   const storage = options?.storage || new DatasetStorageService(datasetRepo);
   const authService = new AuthService({ userRepo, organizationRepo, sessionRepo });
+  const analysisService = new AnalysisService(analysisRepo, storage, queue);
   const scheduleService = new ScheduleService({ scheduleRepo, datasetRepo, deliveryRepo, biRepo, auditRepo });
   const deliveryService = new DeliveryService({ deliveryRepo, scheduleRepo, analysisRepo, auditRepo });
   const biService = new BiIntegrationService({ biRepo, auditRepo, analysisRepo, scheduleRepo });
+  const auditService = new AuditService(auditRepo);
+  const healthService = new HealthService(healthRepo, queue);
   const schedulerDaemon = new SchedulerDaemon(
     { scheduleRepo, datasetRepo, analysisRepo, auditRepo, deliveryService, biService },
     queue
@@ -87,9 +96,12 @@ export function createAppServer(options?: {
   const services: ServerServices = {
     auth: authService,
     storage,
+    analysis: analysisService,
     schedule: scheduleService,
     delivery: deliveryService,
     bi: biService,
+    audit: auditService,
+    health: healthService,
     schedulerDaemon,
     queue,
   };

@@ -2,8 +2,26 @@
  * Dataset persistence models, storage options, and status enumerations.
  */
 
-export type DatasetFormat = 'csv' | 'parquet';
-export type DatasetStatus = 'registered' | 'profiling' | 'ready' | 'error';
+export enum DatasetFormat {
+  CSV = 'csv',
+  PARQUET = 'parquet',
+}
+
+export type DatasetFormatValue = `${DatasetFormat}`;
+
+export enum DatasetStatus {
+  REGISTERED = 'registered',
+  PROFILING = 'profiling',
+  READY = 'ready',
+  ERROR = 'error',
+}
+
+export type DatasetStatusValue = `${DatasetStatus}`;
+
+export enum DatasetSubResource {
+  PROFILE = 'profile',
+  PREVIEW = 'preview',
+}
 
 export interface DatasetRecord {
   id: string;
@@ -12,11 +30,11 @@ export interface DatasetRecord {
   originalFilename: string;
   storagePath: string;
   fileSizeBytes: number;
-  format: DatasetFormat;
+  format: DatasetFormat | DatasetFormatValue;
   rowCount: number;
   columnCount: number;
   schemaFingerprint: string;
-  status: DatasetStatus;
+  status: DatasetStatus | DatasetStatusValue;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,11 +53,11 @@ export interface CreateDatasetInput {
   originalFilename: string;
   storagePath: string;
   fileSizeBytes: number;
-  format: DatasetFormat;
+  format: DatasetFormat | DatasetFormatValue;
   rowCount: number;
   columnCount: number;
   schemaFingerprint: string;
-  status: DatasetStatus;
+  status: DatasetStatus | DatasetStatusValue;
 }
 
 export interface DatasetUploadOptions {

@@ -2,13 +2,22 @@
  * Delivery destination and dispatch payload types.
  */
 
-export type DeliveryDestinationType = 'email' | 'webhook';
+export enum DeliveryDestinationType {
+  EMAIL = 'email',
+  WEBHOOK = 'webhook',
+}
+
+export type DeliveryDestinationTypeValue = DeliveryDestinationType | `${DeliveryDestinationType}`;
+
+export enum DeliverySubAction {
+  TEST = 'test',
+}
 
 export interface DeliveryDestinationRecord {
   id: string;
   organizationId: string;
   name: string;
-  destinationType: DeliveryDestinationType;
+  destinationType: DeliveryDestinationTypeValue;
   recipientEmails?: string | null;
   webhookUrl?: string | null;
   encryptedSecret?: string | null;
@@ -21,7 +30,7 @@ export type CreateDeliveryDestinationInput = Omit<DeliveryDestinationRecord, 'cr
 
 export interface DeliveryResult {
   ok: boolean;
-  destinationType: DeliveryDestinationType;
+  destinationType: DeliveryDestinationTypeValue;
   destinationId: string;
   deliveredAt: string;
   recipientSummary: string;

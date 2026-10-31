@@ -46,13 +46,28 @@ export type CreateAnalysisInput = Omit<AnalysisRecord, 'createdAt' | 'updatedAt'
 
 export type UpdateAnalysisInput = Partial<Omit<AnalysisRecord, 'id' | 'organizationId' | 'createdAt'>>;
 
-export type ArtifactType = 'dashboard_spec' | 'report_html' | 'report_pdf' | 'trace_log';
+export enum ArtifactType {
+  DASHBOARD_SPEC = 'dashboard_spec',
+  REPORT_HTML = 'report_html',
+  REPORT_PDF = 'report_pdf',
+  TRACE_LOG = 'trace_log',
+}
+
+export type ArtifactTypeValue = ArtifactType | `${ArtifactType}`;
+
+export enum ErrorCategory {
+  INFRASTRUCTURE = 'infrastructure',
+  VALIDATION = 'validation',
+  EXECUTION = 'execution',
+  TIMEOUT = 'timeout',
+  SECURITY = 'security',
+}
 
 export interface ArtifactRecord {
   id: string;
   organizationId: string;
   analysisId: string;
-  artifactType: ArtifactType;
+  artifactType: ArtifactTypeValue;
   storagePath: string;
   fileName: string;
   mimeType: string;

@@ -2,18 +2,43 @@
  * Business Intelligence (BI) integration domain and persistence types.
  */
 
-export type BiPlatformType = 'superset' | 'metabase';
-export type BiConnectionStatus = 'untested' | 'connected' | 'error';
-export type BiExportStatus = 'pending' | 'exported' | 'failed' | 'skipped';
+export enum BiPlatformType {
+  SUPERSET = 'superset',
+  METABASE = 'metabase',
+}
+
+export type BiPlatformTypeValue = BiPlatformType | `${BiPlatformType}`;
+
+export enum BiConnectionStatus {
+  UNTESTED = 'untested',
+  CONNECTED = 'connected',
+  ERROR = 'error',
+}
+
+export type BiConnectionStatusValue = BiConnectionStatus | `${BiConnectionStatus}`;
+
+export enum BiExportStatus {
+  PENDING = 'pending',
+  EXPORTED = 'exported',
+  FAILED = 'failed',
+  SKIPPED = 'skipped',
+}
+
+export type BiExportStatusValue = BiExportStatus | `${BiExportStatus}`;
+
+export enum BiSubAction {
+  TEST = 'test',
+  EXPORT = 'export',
+}
 
 export interface BiConnectionRecord {
   id: string;
   organizationId: string;
   name: string;
-  platformType: BiPlatformType;
+  platformType: BiPlatformTypeValue;
   hostUrl: string;
   encryptedCredentials: string; // AES-256-GCM encrypted
-  status: BiConnectionStatus;
+  status: BiConnectionStatusValue;
   lastTestedAt?: string | null;
   lastError?: string | null;
   createdAt: string;

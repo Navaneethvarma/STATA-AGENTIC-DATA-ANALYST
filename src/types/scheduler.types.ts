@@ -2,11 +2,54 @@
  * Scheduler and recurrence domain and persistence types.
  */
 
-export type ScheduleType = 'recurring' | 'one_time';
-export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'failed';
-export type ScheduleRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export type ExportReportFormat = 'html' | 'pdf' | 'both';
-export type DeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped';
+export enum ScheduleType {
+  RECURRING = 'recurring',
+  ONE_TIME = 'one_time',
+}
+
+export type ScheduleTypeValue = ScheduleType | `${ScheduleType}`;
+
+export enum ScheduleStatus {
+  ACTIVE = 'active',
+  PAUSED = 'paused',
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+}
+
+export type ScheduleStatusValue = ScheduleStatus | `${ScheduleStatus}`;
+
+export enum ScheduleRunStatus {
+  QUEUED = 'queued',
+  RUNNING = 'running',
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled',
+}
+
+export type ScheduleRunStatusValue = ScheduleRunStatus | `${ScheduleRunStatus}`;
+
+export enum ExportReportFormat {
+  HTML = 'html',
+  PDF = 'pdf',
+  BOTH = 'both',
+}
+
+export type ExportReportFormatValue = ExportReportFormat | `${ExportReportFormat}`;
+
+export enum DeliveryStatus {
+  PENDING = 'pending',
+  SENT = 'sent',
+  FAILED = 'failed',
+  SKIPPED = 'skipped',
+}
+
+export type DeliveryStatusValue = DeliveryStatus | `${DeliveryStatus}`;
+
+export enum ScheduleSubAction {
+  TRIGGER = 'trigger',
+  RUNS = 'runs',
+}
+
 import type { BiExportStatus } from './bi.types.js';
 
 export interface ScheduleRecord {
@@ -16,7 +59,7 @@ export interface ScheduleRecord {
   datasetId: string;
   name: string;
   userQuery: string;
-  scheduleType: ScheduleType;
+  scheduleType: ScheduleTypeValue;
   cronExpression?: string | null;
   timezone: string;
   oneTimeRunAt?: string | null;
@@ -26,8 +69,8 @@ export interface ScheduleRecord {
   isEnabled: boolean;
   deliveryDestinationId?: string | null;
   biConnectionId?: string | null;
-  exportFormat: ExportReportFormat;
-  status: ScheduleStatus;
+  exportFormat: ExportReportFormatValue;
+  status: ScheduleStatusValue;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,14 +81,14 @@ export interface CreateScheduleInput {
   datasetId: string;
   name: string;
   userQuery: string;
-  scheduleType: ScheduleType;
+  scheduleType: ScheduleTypeValue;
   cronExpression?: string;
   timezone?: string;
   oneTimeRunAt?: string;
   concurrencyLimit?: number;
   deliveryDestinationId?: string;
   biConnectionId?: string;
-  exportFormat?: ExportReportFormat;
+  exportFormat?: ExportReportFormatValue;
 }
 
 export interface UpdateScheduleInput {
@@ -69,11 +112,11 @@ export interface ScheduleRunRecord {
   scheduledFor: string;
   startedAt: string;
   completedAt?: string | null;
-  status: ScheduleRunStatus;
+  status: ScheduleRunStatus | `${ScheduleRunStatus}`;
   errorMessage?: string | null;
-  deliveryStatus?: DeliveryStatus | null;
+  deliveryStatus?: DeliveryStatus | `${DeliveryStatus}` | null;
   deliveryDetailsJson?: string | null;
-  biExportStatus?: BiExportStatus | null;
+  biExportStatus?: BiExportStatus | `${BiExportStatus}` | null;
   biExportDetailsJson?: string | null;
   retryCount: number;
   createdAt: string;

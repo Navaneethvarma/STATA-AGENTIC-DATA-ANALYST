@@ -1,103 +1,80 @@
-import type { RouteHandler } from '../types.js';
-import crypto from 'node:crypto';
-import { assertPermission } from '../../lib/auth/rbac.js';
-import { encryptSecret } from '../../lib/security/encryption.js';
-import type { BiPlatformType } from '../../types/bi.types.js';
+import { type RouteHandler, HttpMethod, HttpStatus, ApiRoute } from '../types.js';
+import { assertPermission, Permission } from '../../lib/auth/rbac.js';
+import { BiSubAction, type BiPlatformTypeValue } from '../../types/bi.types.js';
+
+const BI_DETAIL_PATTERN = new RegExp(`^${ApiRoute.BI_CONNECTIONS}/([a-zA-Z0-9_\\-]+)(?:/([a-zA-Z0-9_\\-]+))?$`);
 
 export const handleBiRoutes: RouteHandler = async (ctx) => {
-  const { req, pathname, repositories, services, parseJsonBody, getAuthContext, sendJson } = ctx;
+  const { req, pathname, services, parseJsonBody, getAuthContext, sendJson } = ctx;
   const { bi: biService } = services;
-  const biRepo = repositories.bi;
 
-  if (pathname === '/api/bi/connections') {
+  if (pathname === ApiRoute.BI_CONNECTIONS) {
     const auth = await getAuthContext();
 
-    if (req.method === 'GET') {
-      assertPermission(auth.role, 'bi:read');
-      const connections = await biRepo.listForOrganization(auth.organization.id);
-      const sanitized = connections.map(c => ({
-        ...c,
-        encryptedCredentials: undefined,
-      }));
-      sendJson(200, { connections: sanitized });
+    if (req.method === HttpMethod.GET) {
+      const connections = await biService.listConnections(auth);
+      sendJson(HttpStatus.OK, { connections });
       return true;
     }
 
-    if (req.method === 'POST') {
-      assertPermission(auth.role, 'bi:manage');
+    if (req.method === HttpMethod.POST) {
       const body = await parseJsonBody<{
         name: string;
-        platformType: BiPlatformType;
+        platformType: BiPlatformTypeValue;
         hostUrl: string;
         username: string;
         password: string;
       }>();
 
-      const encrypted = encryptSecret(JSON.stringify({
-        username: body.username,
-        password: body.password,
-      }));
-
-      const conn = await biRepo.create({
-        id: `biconn_${crypto.randomUUID()}`,
-        organizationId: auth.organization.id,
-        name: body.name.trim(),
-        platformType: body.platformType,
-        hostUrl: body.hostUrl.trim(),
-        encryptedCredentials: encrypted,
-        status: 'untested',
-        lastTestedAt: null,
-        lastError: null,
-      });
-
-      sendJson(201, {
-        connection: {
-          ...conn,
-          encryptedCredentials: undefined,
-        },
-      });
+      const connection = await biService.createConnection(auth, body);
+      sendJson(HttpStatus.CREATED, { connection });
       return true;
     }
   }
 
-  const biDetailMatch = pathname.match(/^\/api\/bi\/connections\/([a-zA-Z0-9_\-]+)(?:\/([a-zA-Z0-9_\-]+))?$/);
+  const biDetailMatch = pathname.match(BI_DETAIL_PATTERN);
   if (biDetailMatch && biDetailMatch[1]) {
     const connId = biDetailMatch[1];
     const subAction = biDetailMatch[2];
     const auth = await getAuthContext();
 
-    if (!subAction && req.method === 'GET') {
-      assertPermission(auth.role, 'bi:read');
-      const conn = await biRepo.findById(connId, auth.organization.id);
-      if (!conn) {
-        sendJson(404, { error: 'BI connection not found' });
+    if (!subAction && req.method === HttpMethod.GET) {
+      try {
+        const connection = await biService.getConnection(auth, connId);
+        sendJson(HttpStatus.OK, { connection });
         return true;
+      } catch (err: any) {
+        if (err.statusCode === 404) {
+          sendJson(HttpStatus.NOT_FOUND, { error: err.message });
+          return true;
+        }
+        throw err;
       }
-      sendJson(200, {
-        connection: {
-          ...conn,
-          encryptedCredentials: undefined,
-        },
-      });
-      return true;
     }
 
-    if (!subAction && req.method === 'DELETE') {
-      assertPermission(auth.role, 'bi:manage');
-      const deleted = await biRepo.delete(connId, auth.organization.id);
-      sendJson(200, { success: deleted });
-      return true;
+    if (!subAction && req.method === HttpMethod.DELETE) {
+      try {
+        const deleted = await biService.deleteConnection(auth, connId);
+        sendJson(HttpStatus.OK, { success: deleted });
+        return true;
+      } catch (err: any) {
+        if (err.statusCode === 404) {
+          sendJson(HttpStatus.NOT_FOUND, { error: err.message });
+          return true;
+        }
+        throw err;
+      }
     }
 
-    if (subAction === 'test' && req.method === 'POST') {
-      assertPermission(auth.role, 'bi:manage');
+    if (subAction === BiSubAction.TEST && req.method === HttpMethod.POST) {
+      assertPermission(auth.role, Permission.BI_MANAGE);
       const resTest = await biService.testConnection(connId, auth.organization.id);
-      sendJson(200, resTest);
+      sendJson(HttpStatus.OK, resTest);
       return true;
     }
 
-    if (subAction === 'export' && req.method === 'POST') {
-      assertPermission(auth.role, 'bi:manage');
+    if (subAction === BiSubAction.EXPORT && req.method === HttpMethod.POST) {
+      assertPermission(auth.role, Permission.BI_MANAGE);
       const body = await parseJsonBody<{ analysisId: string; datasourceId?: number }>();
       const resExport = await biService.exportAnalysis({
         connectionId: connId,
@@ -105,7 +82,7 @@ export const handleBiRoutes: RouteHandler = async (ctx) => {
         analysisId: body.analysisId,
         datasourceId: body.datasourceId,
       });
-      sendJson(200, resExport);
+      sendJson(HttpStatus.OK, resExport);
       return true;
     }
   }

@@ -3,7 +3,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import type { DatabaseAdapter } from '../db/types.js';
 import { DatasetRepository, type IDatasetRepository } from '../db/repositories/index.js';
-import { DatasetRecord, DatasetFormat } from '../db/types.js';
+import { DatasetRecord } from '../db/types.js';
+import { DatasetFormat, DatasetStatus } from '../../types/dataset.types.js';
 import { profileDataset } from './profiler.js';
 import type { DatasetProfile } from './types.js';
 import {
@@ -12,10 +13,11 @@ import {
   FileTooLargeError,
   DatasetEmptyError,
 } from './validator.js';
-import { assertTenantScope, assertPermission } from '../auth/rbac.js';
+import { assertTenantScope, assertPermission, Permission } from '../auth/rbac.js';
 import type { AuthenticatedContext } from '../../types/auth.types.js';
 import type { DatasetUploadOptions } from '../../types/dataset.types.js';
 import { computeSchemaFingerprint } from '../observability/tracer.js';
+import { executeAnalyticalQuery } from '../analytics/duckdb-engine.js';
 
 export type { DatasetUploadOptions };
 
@@ -52,7 +54,7 @@ export class DatasetStorageService {
     auth: AuthenticatedContext,
     options: DatasetUploadOptions
   ): Promise<{ dataset: DatasetRecord; profile: DatasetProfile }> {
-    assertPermission(auth.role, 'dataset:upload');
+    assertPermission(auth.role, Permission.DATASET_UPLOAD);
 
     // 1. Sanitize filename and validate extension
     const ext = path.extname(options.originalFilename).toLowerCase();
@@ -61,7 +63,7 @@ export class DatasetStorageService {
         `Unsupported dataset file extension '${ext}'. Only .csv and .parquet are supported.`
       );
     }
-    const format: DatasetFormat = ext === '.csv' ? 'csv' : 'parquet';
+    const format: DatasetFormat = ext === '.csv' ? DatasetFormat.CSV : DatasetFormat.PARQUET;
 
     // 2. Size checks
     if (!options.buffer || options.buffer.length === 0) {
@@ -128,7 +130,7 @@ export class DatasetStorageService {
       rowCount: profile.rowCount,
       columnCount: profile.columnCount,
       schemaFingerprint,
-      status: 'ready',
+      status: DatasetStatus.READY,
     });
 
     await this.datasetRepo.saveProfile({
@@ -144,7 +146,7 @@ export class DatasetStorageService {
    * Retrieves a dataset record with tenant validation.
    */
   async getDataset(auth: AuthenticatedContext, datasetId: string): Promise<DatasetRecord> {
-    assertPermission(auth.role, 'dataset:read');
+    assertPermission(auth.role, Permission.DATASET_READ);
 
     const dataset = await this.datasetRepo.findById(datasetId);
     if (!dataset) {
@@ -169,15 +171,39 @@ export class DatasetStorageService {
    * Lists all datasets authorized for the active organization.
    */
   async listDatasets(auth: AuthenticatedContext): Promise<DatasetRecord[]> {
-    assertPermission(auth.role, 'dataset:read');
+    assertPermission(auth.role, Permission.DATASET_READ);
     return this.datasetRepo.listForOrganization(auth.organization.id);
+  }
+
+  /**
+   * Queries and previews dataset rows with limit enforcement.
+   */
+  async previewDataset(
+    auth: AuthenticatedContext,
+    datasetId: string,
+    limit = 50
+  ): Promise<{ rows: any[]; rowCount: number; columns: string[] }> {
+    const dataset = await this.getDataset(auth, datasetId);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const queryRes = await executeAnalyticalQuery(
+      {
+        datasetPath: dataset.storagePath,
+        sql: `SELECT * FROM dataset LIMIT ${safeLimit}`,
+      },
+      { customBaseDir: this.getBaseDir() }
+    );
+    return {
+      rows: queryRes.rows,
+      rowCount: queryRes.rowCount,
+      columns: queryRes.columns,
+    };
   }
 
   /**
    * Deletes a dataset and cleans up underlying physical file.
    */
   async deleteDataset(auth: AuthenticatedContext, datasetId: string): Promise<void> {
-    assertPermission(auth.role, 'dataset:delete');
+    assertPermission(auth.role, Permission.DATASET_DELETE);
     const dataset = await this.getDataset(auth, datasetId);
 
     // Remove file from disk
@@ -192,4 +218,3 @@ export class DatasetStorageService {
     await this.datasetRepo.delete(dataset.id, auth.organization.id);
   }
 }
-

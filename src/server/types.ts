@@ -10,10 +10,14 @@ import type {
   DeliveryRepository,
   BiRepository,
   AuditRepository,
+  HealthRepository,
 } from '../lib/db/repositories/index.js';
 import type { AuthService } from '../lib/auth/service.js';
 import type { AuthenticatedContext } from '../types/auth.types.js';
 import type { DatasetStorageService } from '../lib/dataset/storage.js';
+import type { AnalysisService } from '../lib/analysis/service.js';
+import type { AuditService } from '../lib/audit/service.js';
+import type { HealthService } from '../lib/health/service.js';
 import type { AnalysisQueueAdapter } from '../types/analysis.types.js';
 import type { ScheduleService } from '../lib/scheduler/service.js';
 import type { SchedulerDaemon } from '../lib/scheduler/daemon.js';
@@ -40,6 +44,7 @@ export enum HttpStatus {
   FORBIDDEN = 403,
   NOT_FOUND = 404,
   CONFLICT = 409,
+  TOO_MANY_REQUESTS = 429,
   INTERNAL_SERVER_ERROR = 500,
   SERVICE_UNAVAILABLE = 503,
 }
@@ -71,14 +76,18 @@ export interface ServerRepositories {
   delivery: DeliveryRepository;
   bi: BiRepository;
   audit: AuditRepository;
+  health: HealthRepository;
 }
 
 export interface ServerServices {
   auth: AuthService;
   storage: DatasetStorageService;
+  analysis: AnalysisService;
   schedule: ScheduleService;
   delivery: DeliveryService;
   bi: BiIntegrationService;
+  audit: AuditService;
+  health: HealthService;
   schedulerDaemon: SchedulerDaemon;
   queue: AnalysisQueueAdapter;
 }

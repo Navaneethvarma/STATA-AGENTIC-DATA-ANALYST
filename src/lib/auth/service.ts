@@ -9,7 +9,7 @@ import {
   SessionRepository,
   type ISessionRepository,
 } from '../db/repositories/index.js';
-import type { UserRole } from '../../types/user.types.js';
+import { UserRole } from '../../types/user.types.js';
 import { AuthenticationRequiredError, AuthorizationError } from './rbac.js';
 
 const scryptAsync = util.promisify(crypto.scrypt);
@@ -120,7 +120,7 @@ export class AuthService {
       id: crypto.randomUUID(),
       organizationId: orgId,
       userId,
-      role: 'admin',
+      role: UserRole.ADMIN,
     });
 
     const rawToken = generateToken();
@@ -267,7 +267,7 @@ export class AuthService {
    * Adds or invites a user to an organization with a specific role.
    */
   async addMember(adminContext: AuthenticatedContext, email: string, role: UserRole): Promise<void> {
-    if (adminContext.role !== 'admin') {
+    if (adminContext.role !== UserRole.ADMIN) {
       throw new AuthorizationError('Only organization admins can add or modify members.');
     }
 

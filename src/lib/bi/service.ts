@@ -12,7 +12,13 @@ import {
 } from '../db/repositories/index.js';
 import { SupersetClient } from './superset-client.js';
 import { decryptSecret, encryptSecret, redactSensitiveData } from '../security/encryption.js';
-import { assertTenantScope, AuthorizationError } from '../auth/rbac.js';
+import { assertTenantScope, AuthorizationError, assertPermission, Permission } from '../auth/rbac.js';
+import type { AuthenticatedContext } from '../../types/auth.types.js';
+import {
+  BiConnectionStatus,
+  BiExportStatus,
+  type BiPlatformTypeValue,
+} from '../../types/bi.types.js';
 import { SupersetCredentials, SupersetChartSummary } from './types.js';
 
 export interface BiExportResult {
@@ -221,7 +227,7 @@ export class BiIntegrationService {
 
       if (scheduleRunId) {
         await this.scheduleRepo.updateRun(scheduleRunId, {
-          biExportStatus: 'exported',
+          biExportStatus: BiExportStatus.EXPORTED,
           biExportDetailsJson: JSON.stringify(redactSensitiveData(result)),
         });
       }
@@ -244,7 +250,7 @@ export class BiIntegrationService {
 
       if (scheduleRunId) {
         await this.scheduleRepo.updateRun(scheduleRunId, {
-          biExportStatus: 'failed',
+          biExportStatus: BiExportStatus.FAILED,
           biExportDetailsJson: JSON.stringify({ error: sanitizedErr, timestamp: new Date().toISOString() }),
         });
       }
@@ -288,5 +294,87 @@ export class BiIntegrationService {
       resourceId: connectionId,
       detailsJson: JSON.stringify({ rotatedAt: new Date().toISOString() }),
     });
+  }
+
+  /**
+   * Lists sanitized BI connections for an organization.
+   */
+  async listConnections(auth: AuthenticatedContext) {
+    assertPermission(auth.role, Permission.BI_READ);
+    const connections = await this.biRepo.listForOrganization(auth.organization.id);
+    return connections.map(c => ({
+      ...c,
+      encryptedCredentials: undefined,
+    }));
+  }
+
+  /**
+   * Registers a new BI connection with encrypted credentials.
+   */
+  async createConnection(
+    auth: AuthenticatedContext,
+    input: {
+      name: string;
+      platformType: BiPlatformTypeValue;
+      hostUrl: string;
+      username: string;
+      password: string;
+    }
+  ) {
+    assertPermission(auth.role, Permission.BI_MANAGE);
+    const encrypted = encryptSecret(JSON.stringify({
+      username: input.username,
+      password: input.password,
+    }));
+
+    const conn = await this.biRepo.create({
+      id: `biconn_${crypto.randomUUID()}`,
+      organizationId: auth.organization.id,
+      name: input.name.trim(),
+      platformType: input.platformType,
+      hostUrl: input.hostUrl.trim(),
+      encryptedCredentials: encrypted,
+      status: BiConnectionStatus.UNTESTED,
+      lastTestedAt: null,
+      lastError: null,
+    });
+
+    return {
+      ...conn,
+      encryptedCredentials: undefined,
+    };
+  }
+
+  /**
+   * Retrieves a single sanitized BI connection.
+   */
+  async getConnection(auth: AuthenticatedContext, id: string) {
+    assertPermission(auth.role, Permission.BI_READ);
+    const conn = await this.biRepo.findById(id, auth.organization.id);
+    if (!conn) {
+      const err = new Error('BI connection not found');
+      (err as any).statusCode = 404;
+      throw err;
+    }
+    assertTenantScope(auth.organization.id, conn.organizationId, 'BiConnection');
+    return {
+      ...conn,
+      encryptedCredentials: undefined,
+    };
+  }
+
+  /**
+   * Deletes a BI connection.
+   */
+  async deleteConnection(auth: AuthenticatedContext, id: string): Promise<boolean> {
+    assertPermission(auth.role, Permission.BI_MANAGE);
+    const conn = await this.biRepo.findById(id, auth.organization.id);
+    if (!conn) {
+      const err = new Error('BI connection not found');
+      (err as any).statusCode = 404;
+      throw err;
+    }
+    assertTenantScope(auth.organization.id, conn.organizationId, 'BiConnection');
+    return this.biRepo.delete(id, auth.organization.id);
   }
 }

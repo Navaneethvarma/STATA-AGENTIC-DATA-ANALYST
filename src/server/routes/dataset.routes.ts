@@ -1,11 +1,13 @@
-import type { RouteHandler } from '../types.js';
-import { executeAnalyticalQuery } from '../../lib/analytics/duckdb-engine.js';
+import { type RouteHandler, HttpMethod, HttpStatus, ApiRoute } from '../types.js';
+import { DatasetSubResource } from '../../types/dataset.types.js';
+
+const DATASET_DETAIL_PATTERN = new RegExp(`^${ApiRoute.DATASETS}/([a-zA-Z0-9_\\-]+)(?:/([a-zA-Z0-9_\\-]+))?$`);
 
 export const handleDatasetRoutes: RouteHandler = async (ctx) => {
   const { req, pathname, urlObj, services, parseJsonBody, parseBufferBody, getAuthContext, sendJson } = ctx;
   const { storage } = services;
 
-  if (pathname === '/api/datasets/upload' && req.method === 'POST') {
+  if (pathname === ApiRoute.DATASETS_UPLOAD && req.method === HttpMethod.POST) {
     const auth = await getAuthContext();
     const contentType = req.headers['content-type'] || '';
 
@@ -20,7 +22,7 @@ export const handleDatasetRoutes: RouteHandler = async (ctx) => {
       } else if (body.content) {
         buffer = Buffer.from(body.content, 'utf8');
       } else {
-        sendJson(400, { error: 'content or contentBase64 is required' });
+        sendJson(HttpStatus.BAD_REQUEST, { error: 'content or contentBase64 is required' });
         return true;
       }
     } else {
@@ -34,7 +36,7 @@ export const handleDatasetRoutes: RouteHandler = async (ctx) => {
       buffer,
     });
 
-    sendJson(201, {
+    sendJson(HttpStatus.CREATED, {
       dataset: {
         id: result.dataset.id,
         originalFilename: result.dataset.originalFilename,
@@ -51,11 +53,11 @@ export const handleDatasetRoutes: RouteHandler = async (ctx) => {
     return true;
   }
 
-  if (pathname === '/api/datasets' && req.method === 'GET') {
+  if (pathname === ApiRoute.DATASETS && req.method === HttpMethod.GET) {
     const auth = await getAuthContext();
     const datasets = await storage.listDatasets(auth);
     sendJson(
-      200,
+      HttpStatus.OK,
       datasets.map(d => ({
         id: d.id,
         originalFilename: d.originalFilename,
@@ -71,15 +73,15 @@ export const handleDatasetRoutes: RouteHandler = async (ctx) => {
     return true;
   }
 
-  const datasetMatch = pathname.match(/^\/api\/datasets\/([a-zA-Z0-9_\-]+)(?:\/([a-zA-Z0-9_\-]+))?$/);
+  const datasetMatch = pathname.match(DATASET_DETAIL_PATTERN);
   if (datasetMatch && datasetMatch[1]) {
     const datasetId = datasetMatch[1];
     const subResource = datasetMatch[2];
     const auth = await getAuthContext();
 
-    if (!subResource && req.method === 'GET') {
+    if (!subResource && req.method === HttpMethod.GET) {
       const dataset = await storage.getDataset(auth, datasetId);
-      sendJson(200, {
+      sendJson(HttpStatus.OK, {
         id: dataset.id,
         originalFilename: dataset.originalFilename,
         fileSizeBytes: dataset.fileSizeBytes,
@@ -93,37 +95,26 @@ export const handleDatasetRoutes: RouteHandler = async (ctx) => {
       return true;
     }
 
-    if (subResource === 'profile' && req.method === 'GET') {
+    if (subResource === DatasetSubResource.PROFILE && req.method === HttpMethod.GET) {
       const profile = await storage.getDatasetProfile(auth, datasetId);
       if (!profile) {
-        sendJson(404, { error: 'Dataset profile not found' });
+        sendJson(HttpStatus.NOT_FOUND, { error: 'Dataset profile not found' });
         return true;
       }
-      sendJson(200, profile);
+      sendJson(HttpStatus.OK, profile);
       return true;
     }
 
-    if (subResource === 'preview' && req.method === 'GET') {
-      const dataset = await storage.getDataset(auth, datasetId);
-      const limit = Math.min(parseInt(urlObj.searchParams.get('limit') || '50', 10), 100);
-      const queryRes = await executeAnalyticalQuery(
-        {
-          datasetPath: dataset.storagePath,
-          sql: `SELECT * FROM dataset LIMIT ${limit}`,
-        },
-        { customBaseDir: storage.getBaseDir() }
-      );
-      sendJson(200, {
-        rows: queryRes.rows,
-        rowCount: queryRes.rowCount,
-        columns: queryRes.columns,
-      });
+    if (subResource === DatasetSubResource.PREVIEW && req.method === HttpMethod.GET) {
+      const limit = parseInt(urlObj.searchParams.get('limit') || '50', 10);
+      const preview = await storage.previewDataset(auth, datasetId, limit);
+      sendJson(HttpStatus.OK, preview);
       return true;
     }
 
-    if (!subResource && req.method === 'DELETE') {
+    if (!subResource && req.method === HttpMethod.DELETE) {
       await storage.deleteDataset(auth, datasetId);
-      sendJson(200, { message: 'Dataset deleted successfully' });
+      sendJson(HttpStatus.OK, { message: 'Dataset deleted successfully' });
       return true;
     }
   }

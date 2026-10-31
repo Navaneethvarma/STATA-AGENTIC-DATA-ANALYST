@@ -8,3 +8,4 @@ export * from './schedule.repository.js';
 export * from './delivery.repository.js';
 export * from './bi.repository.js';
 export * from './audit.repository.js';
+export * from './health.repository.js';

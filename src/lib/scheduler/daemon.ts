@@ -12,6 +12,7 @@ import {
 } from '../db/repositories/index.js';
 import { AnalysisQueueAdapter } from '../queue/analysis-queue.js';
 import { ScheduleRecord } from '../db/types.js';
+import { ScheduleRunStatus } from '../../types/scheduler.types.js';
 import { TimezoneScheduler } from './timezone.js';
 import { DeliveryService } from '../delivery/service.js';
 import { BiIntegrationService } from '../bi/service.js';
@@ -272,7 +273,7 @@ export class SchedulerDaemon {
       analysisId,
       scheduledFor,
       startedAt: new Date().toISOString(),
-      status: 'running',
+      status: ScheduleRunStatus.RUNNING,
       retryCount: 0,
     });
 
@@ -292,7 +293,7 @@ export class SchedulerDaemon {
       return true;
     } catch (err: any) {
       await this.scheduleRepo.updateRun(runId, {
-        status: 'failed',
+        status: ScheduleRunStatus.FAILED,
         completedAt: new Date().toISOString(),
         errorMessage: redactSensitiveData(err.message || 'Failed to submit analysis job'),
       });
@@ -348,7 +349,7 @@ export class SchedulerDaemon {
 
         // 3. Mark schedule run completed
         await this.scheduleRepo.updateRun(scheduleRunId, {
-          status: 'completed',
+          status: ScheduleRunStatus.COMPLETED,
           completedAt: new Date().toISOString(),
         });
         return;
@@ -356,7 +357,7 @@ export class SchedulerDaemon {
 
       if (analysis.status === 'failed' || analysis.status === 'cancelled') {
         await this.scheduleRepo.updateRun(scheduleRunId, {
-          status: 'failed',
+          status: ScheduleRunStatus.FAILED,
           completedAt: new Date().toISOString(),
           errorMessage: analysis.errorMessage || 'Analysis execution failed',
         });

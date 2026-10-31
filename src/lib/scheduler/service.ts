@@ -14,7 +14,8 @@ import {
 } from '../db/repositories/index.js';
 import type { ScheduleRecord, ScheduleRunRecord } from '../../types/scheduler.types.js';
 import { TimezoneScheduler } from './timezone.js';
-import { assertTenantScope, AuthorizationError } from '../auth/rbac.js';
+import { assertTenantScope, AuthorizationError, assertPermission, Permission } from '../auth/rbac.js';
+import type { AuthenticatedContext } from '../../types/auth.types.js';
 
 import type {
   CreateScheduleInput,
@@ -275,5 +276,28 @@ export class ScheduleService {
     assertTenantScope(organizationId, schedule.organizationId, 'Schedule');
 
     return this.scheduleRepo.listRuns(scheduleId, organizationId);
+  }
+
+  /**
+   * Lists schedules for an organization.
+   */
+  async listSchedules(auth: AuthenticatedContext): Promise<ScheduleRecord[]> {
+    assertPermission(auth.role, Permission.SCHEDULE_READ);
+    return this.scheduleRepo.listForOrganization(auth.organization.id);
+  }
+
+  /**
+   * Retrieves single schedule by ID with tenant validation.
+   */
+  async getSchedule(auth: AuthenticatedContext, scheduleId: string): Promise<ScheduleRecord> {
+    assertPermission(auth.role, Permission.SCHEDULE_READ);
+    const schedule = await this.scheduleRepo.findById(scheduleId, auth.organization.id);
+    if (!schedule) {
+      const err = new Error('Schedule not found');
+      (err as any).statusCode = 404;
+      throw err;
+    }
+    assertTenantScope(auth.organization.id, schedule.organizationId, 'Schedule');
+    return schedule;
   }
 }

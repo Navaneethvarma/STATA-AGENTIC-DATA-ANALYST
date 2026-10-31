@@ -11,13 +11,16 @@ import {
   type IAuditRepository,
 } from '../db/repositories/index.js';
 import { DeliveryDestinationRecord } from '../db/types.js';
-import { decryptSecret, redactSensitiveData } from '../security/encryption.js';
-import { assertTenantScope, AuthorizationError } from '../auth/rbac.js';
-
-import type {
-  DeliveryResult,
-  DeliveryPayload,
+import { decryptSecret, encryptSecret, redactSensitiveData } from '../security/encryption.js';
+import { assertTenantScope, AuthorizationError, assertPermission, Permission } from '../auth/rbac.js';
+import type { AuthenticatedContext } from '../../types/auth.types.js';
+import {
+  DeliveryDestinationType,
+  type DeliveryDestinationTypeValue,
+  type DeliveryResult,
+  type DeliveryPayload,
 } from '../../types/delivery.types.js';
+import { DeliveryStatus } from '../../types/scheduler.types.js';
 
 export type { DeliveryResult, DeliveryPayload };
 
@@ -77,7 +80,7 @@ export class DeliveryService {
     if (!destination) {
       const err = `Delivery destination '${destinationId}' not found or unauthorized for tenant '${organizationId}'.`;
       await this.scheduleRepo.updateRun(scheduleRunId, {
-        deliveryStatus: 'failed',
+        deliveryStatus: DeliveryStatus.FAILED,
         deliveryDetailsJson: JSON.stringify({ error: err, timestamp: new Date().toISOString() }),
       });
       throw new AuthorizationError(err);
@@ -94,7 +97,7 @@ export class DeliveryService {
         errorMessage: 'Delivery destination is inactive/disabled.',
       };
       await this.scheduleRepo.updateRun(scheduleRunId, {
-        deliveryStatus: 'skipped',
+        deliveryStatus: DeliveryStatus.SKIPPED,
         deliveryDetailsJson: JSON.stringify(result),
       });
       return result;
@@ -134,9 +137,9 @@ export class DeliveryService {
     // 4. Dispatch based on Destination Type
     let result: DeliveryResult;
     try {
-      if (destination.destinationType === 'webhook') {
+      if (destination.destinationType === DeliveryDestinationType.WEBHOOK) {
         result = await this.deliverWebhook(destination, payload, options.fetchImpl);
-      } else if (destination.destinationType === 'email') {
+      } else if (destination.destinationType === DeliveryDestinationType.EMAIL) {
         result = await this.deliverEmail(destination, payload);
       } else {
         throw new Error(`Unsupported delivery destination type: ${(destination as any).destinationType}`);
@@ -154,7 +157,7 @@ export class DeliveryService {
 
     // 5. Durable Status & Sanitized Audit Recording
     await this.scheduleRepo.updateRun(scheduleRunId, {
-      deliveryStatus: result.ok ? 'sent' : 'failed',
+      deliveryStatus: result.ok ? DeliveryStatus.SENT : DeliveryStatus.FAILED,
       deliveryDetailsJson: JSON.stringify(redactSensitiveData(result)),
     });
 
@@ -283,5 +286,84 @@ export class DeliveryService {
         artifactsCount: payload.artifacts.length,
       },
     };
+  }
+
+  /**
+   * Lists sanitized delivery destinations for an organization.
+   */
+  async listDestinations(auth: AuthenticatedContext) {
+    assertPermission(auth.role, Permission.DELIVERY_READ);
+    const destinations = await this.deliveryRepo.listForOrganization(auth.organization.id);
+    return destinations.map(d => ({
+      ...d,
+      encryptedSecret: undefined,
+      hasSecret: !!d.encryptedSecret,
+    }));
+  }
+
+  /**
+   * Registers a new delivery destination with encrypted secrets.
+   */
+  async createDestination(
+    auth: AuthenticatedContext,
+    input: {
+      name: string;
+      destinationType: DeliveryDestinationTypeValue;
+      recipientEmails?: string;
+      webhookUrl?: string;
+      secret?: string;
+    }
+  ) {
+    assertPermission(auth.role, Permission.DELIVERY_MANAGE);
+    const encryptedSecret = input.secret ? encryptSecret(input.secret) : null;
+    const dest = await this.deliveryRepo.create({
+      id: `dest_${crypto.randomUUID()}`,
+      organizationId: auth.organization.id,
+      name: input.name.trim(),
+      destinationType: input.destinationType,
+      recipientEmails: input.recipientEmails || null,
+      webhookUrl: input.webhookUrl || null,
+      encryptedSecret,
+      isActive: true,
+    });
+    return {
+      ...dest,
+      encryptedSecret: undefined,
+      hasSecret: !!dest.encryptedSecret,
+    };
+  }
+
+  /**
+   * Retrieves a sanitized delivery destination.
+   */
+  async getDestination(auth: AuthenticatedContext, id: string) {
+    assertPermission(auth.role, Permission.DELIVERY_READ);
+    const dest = await this.deliveryRepo.findById(id, auth.organization.id);
+    if (!dest) {
+      const err = new Error('Delivery destination not found');
+      (err as any).statusCode = 404;
+      throw err;
+    }
+    assertTenantScope(auth.organization.id, dest.organizationId, 'DeliveryDestination');
+    return {
+      ...dest,
+      encryptedSecret: undefined,
+      hasSecret: !!dest.encryptedSecret,
+    };
+  }
+
+  /**
+   * Deletes a delivery destination.
+   */
+  async deleteDestination(auth: AuthenticatedContext, id: string): Promise<boolean> {
+    assertPermission(auth.role, Permission.DELIVERY_MANAGE);
+    const dest = await this.deliveryRepo.findById(id, auth.organization.id);
+    if (!dest) {
+      const err = new Error('Delivery destination not found');
+      (err as any).statusCode = 404;
+      throw err;
+    }
+    assertTenantScope(auth.organization.id, dest.organizationId, 'DeliveryDestination');
+    return this.deliveryRepo.delete(id, auth.organization.id);
   }
 }

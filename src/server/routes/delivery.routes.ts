@@ -1,88 +1,67 @@
-import type { RouteHandler } from '../types.js';
-import crypto from 'node:crypto';
-import { assertPermission } from '../../lib/auth/rbac.js';
-import { encryptSecret } from '../../lib/security/encryption.js';
-import type { DeliveryDestinationType } from '../../types/delivery.types.js';
+import { type RouteHandler, HttpMethod, HttpStatus, ApiRoute } from '../types.js';
+import type { DeliveryDestinationTypeValue } from '../../types/delivery.types.js';
+
+const DELIVERY_DETAIL_PATTERN = new RegExp(`^${ApiRoute.DELIVERY_DESTINATIONS}/([a-zA-Z0-9_\\-]+)$`);
 
 export const handleDeliveryRoutes: RouteHandler = async (ctx) => {
-  const { req, pathname, repositories, parseJsonBody, getAuthContext, sendJson } = ctx;
-  const deliveryRepo = repositories.delivery;
+  const { req, pathname, services, parseJsonBody, getAuthContext, sendJson } = ctx;
+  const { delivery: deliveryService } = services;
 
-  if (pathname === '/api/delivery/destinations') {
+  if (pathname === ApiRoute.DELIVERY_DESTINATIONS) {
     const auth = await getAuthContext();
 
-    if (req.method === 'GET') {
-      assertPermission(auth.role, 'delivery:read');
-      const destinations = await deliveryRepo.listForOrganization(auth.organization.id);
-      const sanitized = destinations.map(d => ({
-        ...d,
-        encryptedSecret: undefined,
-        hasSecret: !!d.encryptedSecret,
-      }));
-      sendJson(200, { destinations: sanitized });
+    if (req.method === HttpMethod.GET) {
+      const destinations = await deliveryService.listDestinations(auth);
+      sendJson(HttpStatus.OK, { destinations });
       return true;
     }
 
-    if (req.method === 'POST') {
-      assertPermission(auth.role, 'delivery:manage');
+    if (req.method === HttpMethod.POST) {
       const body = await parseJsonBody<{
         name: string;
-        destinationType: DeliveryDestinationType;
+        destinationType: DeliveryDestinationTypeValue;
         recipientEmails?: string;
         webhookUrl?: string;
         secret?: string;
       }>();
 
-      const encryptedSecret = body.secret ? encryptSecret(body.secret) : null;
-      const dest = await deliveryRepo.create({
-        id: `dest_${crypto.randomUUID()}`,
-        organizationId: auth.organization.id,
-        name: body.name.trim(),
-        destinationType: body.destinationType,
-        recipientEmails: body.recipientEmails || null,
-        webhookUrl: body.webhookUrl || null,
-        encryptedSecret,
-        isActive: true,
-      });
-
-      sendJson(201, {
-        destination: {
-          ...dest,
-          encryptedSecret: undefined,
-          hasSecret: !!dest.encryptedSecret,
-        },
-      });
+      const destination = await deliveryService.createDestination(auth, body);
+      sendJson(HttpStatus.CREATED, { destination });
       return true;
     }
   }
 
-  const deliveryDetailMatch = pathname.match(/^\/api\/delivery\/destinations\/([a-zA-Z0-9_\-]+)$/);
+  const deliveryDetailMatch = pathname.match(DELIVERY_DETAIL_PATTERN);
   if (deliveryDetailMatch && deliveryDetailMatch[1]) {
     const destId = deliveryDetailMatch[1];
     const auth = await getAuthContext();
 
-    if (req.method === 'GET') {
-      assertPermission(auth.role, 'delivery:read');
-      const dest = await deliveryRepo.findById(destId, auth.organization.id);
-      if (!dest) {
-        sendJson(404, { error: 'Delivery destination not found' });
+    if (req.method === HttpMethod.GET) {
+      try {
+        const destination = await deliveryService.getDestination(auth, destId);
+        sendJson(HttpStatus.OK, { destination });
         return true;
+      } catch (err: any) {
+        if (err.statusCode === 404) {
+          sendJson(HttpStatus.NOT_FOUND, { error: err.message });
+          return true;
+        }
+        throw err;
       }
-      sendJson(200, {
-        destination: {
-          ...dest,
-          encryptedSecret: undefined,
-          hasSecret: !!dest.encryptedSecret,
-        },
-      });
-      return true;
     }
 
-    if (req.method === 'DELETE') {
-      assertPermission(auth.role, 'delivery:manage');
-      const deleted = await deliveryRepo.delete(destId, auth.organization.id);
-      sendJson(200, { success: deleted });
-      return true;
+    if (req.method === HttpMethod.DELETE) {
+      try {
+        const deleted = await deliveryService.deleteDestination(auth, destId);
+        sendJson(HttpStatus.OK, { success: deleted });
+        return true;
+      } catch (err: any) {
+        if (err.statusCode === 404) {
+          sendJson(HttpStatus.NOT_FOUND, { error: err.message });
+          return true;
+        }
+        throw err;
+      }
     }
   }
 

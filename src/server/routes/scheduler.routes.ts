@@ -1,36 +1,41 @@
-import type { RouteHandler } from '../types.js';
-import { assertPermission } from '../../lib/auth/rbac.js';
-import type { ExportReportFormat } from '../../types/scheduler.types.js';
+import { type RouteHandler, HttpMethod, HttpStatus, ApiRoute } from '../types.js';
+import { assertPermission, Permission } from '../../lib/auth/rbac.js';
+import {
+  ScheduleSubAction,
+  type ExportReportFormatValue,
+  type ScheduleTypeValue,
+} from '../../types/scheduler.types.js';
+
+const SCHEDULE_DETAIL_PATTERN = new RegExp(`^${ApiRoute.SCHEDULES}/([a-zA-Z0-9_\\-]+)(?:/([a-zA-Z0-9_\\-]+))?$`);
 
 export const handleSchedulerRoutes: RouteHandler = async (ctx) => {
-  const { req, pathname, repositories, services, parseJsonBody, getAuthContext, sendJson } = ctx;
+  const { req, pathname, services, parseJsonBody, getAuthContext, sendJson } = ctx;
   const { schedule: scheduleService, schedulerDaemon } = services;
-  const scheduleRepo = repositories.schedule;
 
-  if (pathname === '/api/schedules') {
+  if (pathname === ApiRoute.SCHEDULES) {
     const auth = await getAuthContext();
 
-    if (req.method === 'GET') {
-      assertPermission(auth.role, 'schedule:read');
-      const schedules = await scheduleRepo.listForOrganization(auth.organization.id);
-      sendJson(200, { schedules });
+    if (req.method === HttpMethod.GET) {
+      assertPermission(auth.role, Permission.SCHEDULE_READ);
+      const schedules = await scheduleService.listSchedules(auth);
+      sendJson(HttpStatus.OK, { schedules });
       return true;
     }
 
-    if (req.method === 'POST') {
-      assertPermission(auth.role, 'schedule:manage');
+    if (req.method === HttpMethod.POST) {
+      assertPermission(auth.role, Permission.SCHEDULE_MANAGE);
       const body = await parseJsonBody<{
         datasetId: string;
         name: string;
         userQuery: string;
-        scheduleType: 'recurring' | 'one_time';
+        scheduleType: ScheduleTypeValue;
         cronExpression?: string;
         timezone?: string;
         oneTimeRunAt?: string;
         concurrencyLimit?: number;
         deliveryDestinationId?: string;
         biConnectionId?: string;
-        exportFormat?: ExportReportFormat;
+        exportFormat?: ExportReportFormatValue;
       }>();
 
       const schedule = await scheduleService.createSchedule({
@@ -38,30 +43,33 @@ export const handleSchedulerRoutes: RouteHandler = async (ctx) => {
         organizationId: auth.organization.id,
         userId: auth.user.id,
       });
-      sendJson(201, { schedule });
+      sendJson(HttpStatus.CREATED, { schedule });
       return true;
     }
   }
 
-  const scheduleDetailMatch = pathname.match(/^\/api\/schedules\/([a-zA-Z0-9_\-]+)(?:\/([a-zA-Z0-9_\-]+))?$/);
+  const scheduleDetailMatch = pathname.match(SCHEDULE_DETAIL_PATTERN);
   if (scheduleDetailMatch && scheduleDetailMatch[1]) {
     const scheduleId = scheduleDetailMatch[1];
     const subAction = scheduleDetailMatch[2];
     const auth = await getAuthContext();
 
-    if (!subAction && req.method === 'GET') {
-      assertPermission(auth.role, 'schedule:read');
-      const schedule = await scheduleRepo.findById(scheduleId, auth.organization.id);
-      if (!schedule) {
-        sendJson(404, { error: 'Schedule not found' });
+    if (!subAction && req.method === HttpMethod.GET) {
+      try {
+        const schedule = await scheduleService.getSchedule(auth, scheduleId);
+        sendJson(HttpStatus.OK, { schedule });
         return true;
+      } catch (err: any) {
+        if (err.statusCode === 404) {
+          sendJson(HttpStatus.NOT_FOUND, { error: err.message });
+          return true;
+        }
+        throw err;
       }
-      sendJson(200, { schedule });
-      return true;
     }
 
-    if (!subAction && req.method === 'PUT') {
-      assertPermission(auth.role, 'schedule:manage');
+    if (!subAction && req.method === HttpMethod.PUT) {
+      assertPermission(auth.role, Permission.SCHEDULE_MANAGE);
       const body = await parseJsonBody<any>();
       const schedule = await scheduleService.updateSchedule(
         scheduleId,
@@ -69,42 +77,46 @@ export const handleSchedulerRoutes: RouteHandler = async (ctx) => {
         auth.user.id,
         body
       );
-      sendJson(200, { schedule });
+      sendJson(HttpStatus.OK, { schedule });
       return true;
     }
 
-    if (!subAction && req.method === 'DELETE') {
-      assertPermission(auth.role, 'schedule:manage');
+    if (!subAction && req.method === HttpMethod.DELETE) {
+      assertPermission(auth.role, Permission.SCHEDULE_MANAGE);
       const deleted = await scheduleService.deleteSchedule(
         scheduleId,
         auth.organization.id,
         auth.user.id
       );
-      sendJson(200, { success: deleted });
+      sendJson(HttpStatus.OK, { success: deleted });
       return true;
     }
 
-    if (subAction === 'trigger' && req.method === 'POST') {
-      assertPermission(auth.role, 'schedule:manage');
-      const schedule = await scheduleRepo.findById(scheduleId, auth.organization.id);
-      if (!schedule) {
-        sendJson(404, { error: 'Schedule not found' });
+    if (subAction === ScheduleSubAction.TRIGGER && req.method === HttpMethod.POST) {
+      assertPermission(auth.role, Permission.SCHEDULE_MANAGE);
+      try {
+        const schedule = await scheduleService.getSchedule(auth, scheduleId);
+        const dispatched = await schedulerDaemon.dispatchSchedule(schedule, new Date().toISOString());
+        sendJson(HttpStatus.OK, {
+          success: dispatched,
+          message: dispatched
+            ? 'Schedule triggered successfully'
+            : 'Schedule reached concurrency limit or in-flight',
+        });
         return true;
+      } catch (err: any) {
+        if (err.statusCode === 404) {
+          sendJson(HttpStatus.NOT_FOUND, { error: err.message });
+          return true;
+        }
+        throw err;
       }
-      const dispatched = await schedulerDaemon.dispatchSchedule(schedule, new Date().toISOString());
-      sendJson(200, {
-        success: dispatched,
-        message: dispatched
-          ? 'Schedule triggered successfully'
-          : 'Schedule reached concurrency limit or in-flight',
-      });
-      return true;
     }
 
-    if (subAction === 'runs' && req.method === 'GET') {
-      assertPermission(auth.role, 'schedule:read');
+    if (subAction === ScheduleSubAction.RUNS && req.method === HttpMethod.GET) {
+      assertPermission(auth.role, Permission.SCHEDULE_READ);
       const runs = await scheduleService.listScheduleRuns(scheduleId, auth.organization.id);
-      sendJson(200, { runs });
+      sendJson(HttpStatus.OK, { runs });
       return true;
     }
   }

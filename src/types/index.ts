@@ -12,3 +12,4 @@ export * from './scheduler.types.js';
 export * from './delivery.types.js';
 export * from './bi.types.js';
 export * from './audit.types.js';
+export * from './health.types.js';

@@ -2,7 +2,11 @@
  * User and membership domain and persistence types.
  */
 
-export type UserRole = 'admin' | 'analyst' | 'viewer';
+export enum UserRole {
+  ADMIN = 'admin',
+  ANALYST = 'analyst',
+  VIEWER = 'viewer',
+}
 
 export interface UserRecord {
   id: string;
