@@ -116,7 +116,7 @@ export interface RequestContext {
   db: DatabaseAdapter;
   repositories: ServerRepositories;
   services: ServerServices;
-  parseJsonBody: <T = any>() => Promise<T>;
+  parseJsonBody: <T = unknown>() => Promise<T>;
   parseBufferBody: () => Promise<Buffer>;
   getAuthContext: (options?: { skipCsrf?: boolean }) => Promise<AuthenticatedContext>;
   sendJson: (statusCode: number, data: unknown) => void;

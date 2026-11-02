@@ -47,7 +47,7 @@ export function formatSessionCookie(token: string, maxAgeSeconds = 604800): stri
 /**
  * Parses request payload as JSON with maximum size limit guard.
  */
-export async function parseJsonBody<T = any>(req: http.IncomingMessage, maxBytes = 50 * 1024 * 1024): Promise<T> {
+export async function parseJsonBody<T = unknown>(req: http.IncomingMessage, maxBytes = 50 * 1024 * 1024): Promise<T> {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', chunk => {
@@ -138,7 +138,8 @@ export function sanitizeErrorMessage(rawMessage: string): string {
   return rawMessage
     .replace(/[a-zA-Z]:\\[^\s:"]+/g, '<host_path>')
     .replace(/\/home\/[^\s:"]+/g, '<host_path>')
-    .replace(/:\/\/([^:]+):([^@]+)@/g, '://$1:***@');
+    .replace(/:\/\/([^:]+):([^@]+)@/g, '://$1:***@')
+    .replace(/(password|secret|token|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi, '$1=[REDACTED]');
 }
 
 import path from 'node:path';
@@ -165,4 +166,3 @@ export function tryServeStatic(pathname: string, res: http.ServerResponse): bool
   }
   return false;
 }
-

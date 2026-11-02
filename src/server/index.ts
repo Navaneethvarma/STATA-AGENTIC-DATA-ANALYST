@@ -19,7 +19,6 @@ import { AuditService } from '../lib/audit/service.js';
 import { HealthService } from '../lib/health/service.js';
 import { getAnalysisQueue, reconcileInterruptedJobs } from '../lib/queue/analysis-queue.js';
 import type { AnalysisQueueAdapter } from '../types/analysis.types.js';
-import { AuthorizationError } from '../lib/auth/rbac.js';
 import { ScheduleService } from '../lib/scheduler/service.js';
 import { SchedulerDaemon } from '../lib/scheduler/daemon.js';
 import { DeliveryService } from '../lib/delivery/service.js';
@@ -31,10 +30,10 @@ import {
   parseJsonBody,
   parseBufferBody,
   extractAuthContext,
-  sanitizeErrorMessage,
   tryServeStatic,
 } from './helpers.js';
 import { dispatchRoutes } from './routes/index.js';
+import { renderError } from './error.js';
 
 export {
   HttpMethod,
@@ -163,12 +162,8 @@ export function createAppServer(options?: {
         if (tryServeStatic(urlObj.pathname, res)) return;
 
         sendJson(404, { error: `Endpoint ${req.method} ${urlObj.pathname} not found.` });
-      } catch (err: any) {
-        const statusCode = err instanceof AuthorizationError ? err.statusCode : 400;
-        sendJson(statusCode, {
-          error: sanitizeErrorMessage(err.message || 'An unexpected error occurred.'),
-          code: err.name,
-        });
+      } catch (err: unknown) {
+        renderError(sendJson, err);
       }
     });
 
